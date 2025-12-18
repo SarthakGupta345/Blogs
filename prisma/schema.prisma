@@ -1,0 +1,355 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  about        String?  @db.Text
+  experience   Int?
+  interests    String[]
+  field        String?
+  password     String?
+  shortBio     String?  @db.VarChar(500)
+  profilePhoto String?  @default("")
+  isDeleted    Boolean  @default(false)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+
+  blogs                Blog[]
+  followers            Follow[]              @relation("FollowerRelation")
+  followings           Follow[]              @relation("FollowingRelation")
+  comments             Comment[]
+  membership           Membership?
+  commentReplies       CommentReply[]
+  likeComments         LikeComment[]
+  disLikeComments      DisLikeComment[]
+  likeNotifications    LikeNotification[]
+  messageNotifications MessageNotification[]
+
+  reportedBlogs        ReportBlog[]
+  readHistories        ReadHistory[]
+  blogLikes            BlogLike[]
+  blogDisLikes         BlogDisLike[]
+  savedBlogs           SavedBlog[]
+
+  blockedUsers         BlockedUser[]         @relation("BlockingUser")
+  blockedByUsers       BlockedUser[]         @relation("BlockedByUser")
+  
+  reportedUsers        ReportUser[]          @relation("ReportedByUser")
+  usersReported        ReportUser[]          @relation("UserReporting")
+  commentNotifications CommentNotification[]
+
+  @@index([email])
+  @@index([isDeleted])
+  @@index([createdAt(sort: Desc)])
+  @@map("users")
+}
+
+model BlockedUser {
+  id        String   @id @default(cuid())
+  userID    String
+  blockedID String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user        User @relation("BlockingUser", fields: [userID], references: [id], onDelete: Cascade)
+  blockedUser User @relation("BlockedByUser", fields: [blockedID], references: [id], onDelete: Cascade)
+
+  @@unique([userID, blockedID])
+  @@index([blockedID])
+  @@map("blocked_users")
+}
+
+model ReportUser {
+  id         String   @id @default(cuid())
+  userID     String
+  reportedID String
+  reason     String?  @db.Text
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  user         User @relation("UserReporting", fields: [userID], references: [id], onDelete: Cascade)
+  reportedUser User @relation("ReportedByUser", fields: [reportedID], references: [id], onDelete: Cascade)
+
+  @@unique([userID, reportedID])
+  @@index([reportedID])
+  @@map("reported_users")
+}
+
+model ReadHistory {
+  id        String   @id @default(cuid())
+  userID    String
+  blogId    String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+  blog Blog @relation(fields: [blogId], references: [id], onDelete: Cascade)
+
+  @@unique([userID, blogId])
+  @@index([blogId])
+  @@index([userID, createdAt(sort: Desc)])
+  @@map("read_histories")
+}
+
+model Blog {
+  id           String   @id @default(cuid())
+  userID       String
+  title        String   @db.VarChar(300)
+  content      String   @db.Text
+  thumbnail    String?
+  isMemberOnly Boolean  @default(false)
+  isPublished  Boolean  @default(false)
+  viewCount    Int      @default(0)
+  readCount    Int      @default(0)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+  user          User          @relation(fields: [userID], references: [id], onDelete: Cascade)
+  topics        Topic[]
+  comments      Comment[]
+  reports       ReportBlog[]
+  savedBy       SavedBlog[]
+  likes         BlogLike[]
+  dislikes      BlogDisLike[]
+  readHistories ReadHistory[]
+
+  @@index([userID])
+  @@index([isPublished, createdAt(sort: Desc)])
+  @@index([userID, isPublished, createdAt(sort: Desc)])
+  @@index([isMemberOnly])
+  @@index([viewCount(sort: Desc)])
+  @@map("blogs")
+}
+
+model BlogLike {
+  id        String   @id @default(cuid())
+  userID    String
+  blogID    String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user              User               @relation(fields: [userID], references: [id], onDelete: Cascade)
+  blog              Blog               @relation(fields: [blogID], references: [id], onDelete: Cascade)
+  likeNotifications LikeNotification[]
+
+  @@unique([userID, blogID])
+  @@index([blogID, createdAt(sort: Desc)])
+  @@map("blog_likes")
+}
+
+model BlogDisLike {
+  id        String   @id @default(cuid())
+  userID    String
+  blogID    String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+  blog Blog @relation(fields: [blogID], references: [id], onDelete: Cascade)
+
+  @@unique([userID, blogID])
+  @@index([blogID, createdAt(sort: Desc)])
+  @@map("blog_dislikes")
+}
+
+model Topic {
+  id        String @id @default(cuid())
+  topicName String @unique @db.VarChar(100)
+  slug      String @unique @db.VarChar(100)
+  blogs     Blog[]
+
+  @@index([topicName])
+  @@map("topics")
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerID  String
+  followingID String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  follower  User @relation("FollowingRelation", fields: [followerID], references: [id], onDelete: Cascade)
+  following User @relation("FollowerRelation", fields: [followingID], references: [id], onDelete: Cascade)
+
+  @@unique([followerID, followingID])
+  @@index([followerID])
+  @@index([followingID])
+  @@map("follows")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  userID    String
+  blogId    String
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  user                 User                  @relation(fields: [userID], references: [id], onDelete: Cascade)
+  blog                 Blog                  @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  replies              CommentReply[]
+  likeComments         LikeComment[]
+  disLikeComments      DisLikeComment[]
+  commentNotifications CommentNotification[]
+
+  @@index([userID])
+  @@index([blogId, createdAt(sort: Desc)])
+  @@map("comments")
+}
+
+model LikeComment {
+  id        String   @id @default(cuid())
+  userID    String
+  commentID String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  comment Comment @relation(fields: [commentID], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@unique([userID, commentID])
+  @@index([commentID])
+  @@map("comment_likes")
+}
+
+model DisLikeComment {
+  id        String   @id @default(cuid())
+  userID    String
+  commentID String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  comment Comment @relation(fields: [commentID], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@unique([userID, commentID])
+  @@index([commentID])
+  @@map("comment_dislikes")
+}
+
+model CommentReply {
+  id        String   @id @default(cuid())
+  userID    String
+  commentID String
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  user    User    @relation(fields: [userID], references: [id], onDelete: Cascade)
+  comment Comment @relation(fields: [commentID], references: [id], onDelete: Cascade)
+
+  @@index([userID])
+  @@index([commentID, createdAt(sort: Desc)])
+  @@map("comment_replies")
+}
+
+model SavedBlog {
+  id        String   @id @default(cuid())
+  userID    String
+  blogID    String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+  blog Blog @relation(fields: [blogID], references: [id], onDelete: Cascade)
+
+  @@unique([userID, blogID])
+  @@index([blogID])
+  @@index([userID, createdAt(sort: Desc)])
+  @@map("saved_blogs")
+}
+
+enum MemberShipType {
+  YEARLY
+  MONTHLY
+}
+
+model Membership {
+  id        String         @id @default(cuid())
+  type      MemberShipType
+  userID    String         @unique
+  details   String?        @db.Text
+  price     Float
+  isActive  Boolean        @default(true)
+  expiresAt DateTime       @db.Timestamptz(3)
+  createdAt DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @db.Timestamptz(3)
+
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([isActive])
+  @@map("memberships")
+}
+
+enum ReportMessage {
+  SPAM
+  HATE
+  VIOLENCE
+  SEXUAL
+  POLITICAL
+  RACISM
+  COPYRIGHT
+  INAPPROPRIATE
+  OTHER
+}
+
+model ReportBlog {
+  id        String        @id @default(cuid())
+  userID    String
+  blogID    String
+  type      ReportMessage
+  message   String?       @db.Text
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+
+  blog Blog @relation(fields: [blogID], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@unique([userID, blogID])
+  @@index([blogID])
+  @@index([type])
+  @@map("blog_reports")
+}
+
+model CommentNotification {
+  id        String   @id @default(cuid())
+  userID    String
+  commentID String
+  isSeen    Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  comment Comment @relation(fields: [commentID], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@index([userID, isSeen, createdAt(sort: Desc)])
+  @@map("comment_notifications")
+}
+
+model MessageNotification {
+  id         String   @id @default(cuid())
+  receiverID String
+  senderID   String
+  message    String   @db.Text
+  isSeen     Boolean  @default(false)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  receiver User @relation(fields: [receiverID], references: [id], onDelete: Cascade)
+
+  @@index([receiverID, isSeen, createdAt(sort: Desc)])
+  @@index([senderID])
+  @@map("message_notifications")
+}
+
+model LikeNotification {
+  id          String   @id @default(cuid())
+  userID      String
+  isSeen      Boolean  @default(false)
+  blogLikedId String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  blog BlogLike @relation(fields: [blogLikedId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@index([userID, isSeen, createdAt(sort: Desc)])
+  @@map("like_notifications")
+}
