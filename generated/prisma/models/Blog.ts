@@ -302,6 +302,7 @@ export type BlogOrderByWithRelationInput = {
 
 export type BlogWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  id_userID?: Prisma.BlogIdUserIDCompoundUniqueInput
   AND?: Prisma.BlogWhereInput | Prisma.BlogWhereInput[]
   OR?: Prisma.BlogWhereInput[]
   NOT?: Prisma.BlogWhereInput | Prisma.BlogWhereInput[]
@@ -323,7 +324,7 @@ export type BlogWhereUniqueInput = Prisma.AtLeast<{
   readHistories?: Prisma.ReadHistoryListRelationFilter
   savedBy?: Prisma.SavedBlogListRelationFilter
   topics?: Prisma.TopicListRelationFilter
-}, "id">
+}, "id" | "id_userID">
 
 export type BlogOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
@@ -499,6 +500,11 @@ export type BlogOrderByRelationAggregateInput = {
 export type BlogScalarRelationFilter = {
   is?: Prisma.BlogWhereInput
   isNot?: Prisma.BlogWhereInput
+}
+
+export type BlogIdUserIDCompoundUniqueInput = {
+  id: string
+  userID: string
 }
 
 export type BlogCountOrderByAggregateInput = {

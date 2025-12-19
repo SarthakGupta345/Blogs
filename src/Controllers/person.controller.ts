@@ -3,6 +3,9 @@ import { prisma } from "../config/prisma";
 import { deleteFromS3 } from "../config/aws/s3/deleteObject";
 import { uploadToS3 } from "../config/aws/s3/putObject";
 import { success } from "zod";
+import { idSchema } from "../Schema/auth.schema";
+import { logger } from "../config/Logger/logger";
+import { Prisma } from "../../generated/prisma/client";
 
 
 export const changeProfilePic = async (req: Request, res: Response) => {
@@ -79,7 +82,6 @@ export const changeProfilePic = async (req: Request, res: Response) => {
   }
 };
 
-
 export const deleteProfilePic = async (req: Request, res: Response) => {
   try {
     const currentUserID = req.user?.userID;
@@ -145,204 +147,306 @@ export const deleteProfilePic = async (req: Request, res: Response) => {
   }
 };
 
-
 export const changeDetails = async (req: Request, res: Response) => {
   try {
+  } catch (error) { }
+};
 
-  } catch (error) {
+export const toggleFollow = async (req: Request, res: Response) => {
+  const currentUserID = req.user?.userID;
 
+  if (!currentUserID) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized",
+    });
   }
 
-}
-
-
-export const FollowAndUnfollow = async (req: Request, res: Response) => {
-  try {
-    const currentUserID = req.user?.userID;
-
-    if (!currentUserID) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized user"
-      });
-    }
-
-    const parsed = idSchema.safeParse(req.params);
-
-    if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: parsed.error.issues[0].message
-      });
-    }
-
-    const targetUserID = parsed.data.Id;
-
-    if (targetUserID === currentUserID) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot follow yourself"
-      });
-    }
-
-    const targetUser = await prisma.user.findUnique({
-      where: { id: targetUserID }
+  const parsed = idSchema.safeParse(req.params);
+  if (!parsed.success) {
+    logger.warn("Invalid target user id", {
+      issues: parsed.error.issues,
+      userID: currentUserID,
     });
 
-    if (!targetUser) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid user id",
+    });
+  }
+
+  const targetUserID = parsed.data.Id;
+
+  if (targetUserID === currentUserID) {
+    return res.status(400).json({
+      success: false,
+      message: "You cannot follow yourself",
+    });
+  }
+
+  try {
+
+    const exists = await prisma.user.findUnique({
+      where: { id: targetUserID },
+      select: { id: true },
+    });
+
+    if (!exists) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
-    const existingFollow = await prisma.follow.findUnique({
-      where: {
-        followerID_followingID: {
+    try {
+      await prisma.follow.create({
+        data: {
           followerID: currentUserID,
-          followingID: targetUserID
-        }
-      }
-    });
-
-    if (existingFollow) {
-      await prisma.follow.delete({
-        where: {
-          followerID_followingID: {
-            followerID: currentUserID,
-            followingID: targetUserID
-          }
-        }
+          followingID: targetUserID,
+        },
       });
 
       return res.status(200).json({
         success: true,
-        message: "Unfollowed successfully"
+        message: "Followed successfully",
       });
-    }
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
 
-    await prisma.follow.create({
-      data: {
-        followerID: currentUserID,
-        followingID: targetUserID
+        await prisma.follow.delete({
+          where: {
+            followerID_followingID: {
+              followerID: currentUserID,
+              followingID: targetUserID,
+            },
+          },
+        });
+
+        return res.status(200).json({
+          success: true,
+          message: "Unfollowed successfully",
+        });
       }
-    });
 
-    return res.status(200).json({
-      success: true,
-      message: "Followed successfully"
-    });
-
+      throw error;
+    }
   } catch (error) {
-    logger.error(`Error following/unfollowing user: ${error}`);
+    logger.error("Error toggling follow", {
+      error,
+      userID: currentUserID,
+      targetUserID,
+    });
 
     return res.status(500).json({
       success: false,
-      message: "Internal Server Error"
+      message: "Internal server error",
     });
   }
 };
 
-
-
 export const deleteBlog = async (req: Request, res: Response) => {
-  try {
-    const validId = idSchema.safeParse(req.params.id);
-    const currentUserID = req.user?.userID
-    if (!validId.success) {
-      return res.status(400).json({
-        success: false,
-        message: validId.error.issues[0].message
-      })
-    }
+  const currentUserID = req.user?.userID;
 
-    const blog = await prisma.blog.findFirst({
-      where: {
-        id: validId.data.Id
-      }
-    })
-    if (!blog) {
-      return res.status(404).json({
-        success: false,
-        message: "Story not found"
-      })
-    }
-    if (blog.userID !== currentUserID) {
-      logger.warn(`Unauthorized attempt to delete story ${validId.data.Id} by user ${currentUserID}`);
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized User"
-      })
-    }
+  if (!currentUserID) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized",
+    });
+  }
+
+  const parsed = idSchema.safeParse(req.params);
+  if (!parsed.success) {
+    logger.warn("Invalid blog id", {
+      issues: parsed.error.issues,
+      userID: currentUserID,
+    });
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid blog id",
+    });
+  }
+
+  const blogID = parsed.data.Id;
+
+  try {
 
     await prisma.blog.delete({
       where: {
-        id: validId.data.Id
-      }
-    })
+        id_UserID: {
+          id: blogID,
+          userID: currentUserID
+        }
+      },
+    });
+
     return res.status(200).json({
       success: true,
-      message: "Story deleted successfully"
-    })
+      message: "Story deleted successfully",
+    });
   } catch (error) {
-    logger.error(`Error deleting story: ${error}`);
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-    });
-  }
-}
 
-
-export const getAllStoryFromUser = async (req: Request, res: Response) => {
-  try {
-    const currentUserID = req.user?.userID;
-
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
-
-    const skip = (page - 1) * limit;
-
-    const blog = await prisma.blog.findMany({
-      where: {
-        userID: currentUserID,
-      },
-      skip,
-      take: limit,
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-
-    const totalCount = await prisma.blog.count({
-      where: {
-        userID: currentUserID,
-      },
-    });
-
-    if (!stories || stories.length === 0) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
       return res.status(404).json({
         success: false,
-        message: "No stories found",
+        message: "Story not found or access denied",
       });
     }
+
+    logger.error("Error deleting story", {
+      error,
+      userID: currentUserID,
+      blogID,
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+export const getAllBlogFromUser = async (req: Request, res: Response) => {
+  const currentUserID = req.user?.userID;
+
+  if (!currentUserID) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized",
+    });
+  }
+
+  // Validate user id param
+  const parsed = idSchema.safeParse(req.params);
+  if (!parsed.success) {
+    logger.warn("Invalid user id", {
+      issues: parsed.error.issues,
+      userID: currentUserID,
+    });
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid user id",
+    });
+  }
+
+  const userID = parsed.data.Id;
+
+  // Safe pagination
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 20);
+  const skip = (page - 1) * limit;
+
+  try {
+    // Ensure target user exists
+    const userExists = await prisma.user.findUnique({
+      where: { id: userID },
+      select: { id: true },
+    });
+
+    if (!userExists) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Fetch blogs + total count in parallel
+    const [blogs, totalCount] = await Promise.all([
+      prisma.blog.findMany({
+        where: {
+          userID,
+          isPublished: true,
+        },
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          createdAt: true,
+          thumbnail: true,
+          isMemberOnly: true,
+          viewCount: true,
+          _count: {
+            select: {
+              likes: true,
+              dislikes: true,
+              comments: true,
+            },
+          },
+        },
+      }),
+      prisma.blog.count({
+        where: {
+          userID,
+          isPublished: true,
+        },
+      }),
+    ]);
+
+    // Fetch user interactions ONLY if blogs exist
+    let likedSet = new Set<string>();
+    let dislikedSet = new Set<string>();
+    let savedSet = new Set<string>();
+
+    if (blogs.length > 0) {
+      const blogIds = blogs.map((b) => b.id);
+
+      const [likes, dislikes, saves] = await Promise.all([
+        prisma.blogLike.findMany({
+          where: { userID: currentUserID, blogID: { in: blogIds } },
+          select: { blogID: true },
+        }),
+        prisma.blogDisLike.findMany({
+          where: { userID: currentUserID, blogID: { in: blogIds } },
+          select: { blogID: true },
+        }),
+        prisma.savedBlog.findMany({
+          where: { userID: currentUserID, blogID: { in: blogIds } },
+          select: { blogID: true },
+        }),
+      ]);
+
+      likedSet = new Set(likes.map((l) => l.blogID));
+      dislikedSet = new Set(dislikes.map((d) => d.blogID));
+      savedSet = new Set(saves.map((s) => s.blogID));
+    }
+
+    const data = blogs.map((blog) => ({
+      ...blog,
+      isLiked: likedSet.has(blog.id),
+      isDisliked: dislikedSet.has(blog.id),
+      isSaved: savedSet.has(blog.id),
+    }));
 
     return res.status(200).json({
       success: true,
       message: "Stories fetched successfully",
-      data: stories,
+      data,
       pagination: {
         total: totalCount,
         page,
         limit,
         totalPages: Math.ceil(totalCount / limit),
-        hasNextPage: page < Math.ceil(totalCount / limit),
+        hasNextPage: page * limit < totalCount,
         hasPreviousPage: page > 1,
       },
     });
-
   } catch (error) {
-    logger.error(`Error getting stories: ${error}`);
+    logger.error("Error getting stories", {
+      error,
+      userID,
+      currentUserID,
+    });
+
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -350,121 +454,252 @@ export const getAllStoryFromUser = async (req: Request, res: Response) => {
   }
 };
 
+export const saveBlog = async (req: Request, res: Response) => {
+  const currentUserID = req.user?.userID;
 
-export const getPrivateAndPublicStories = async (req: Request, res: Response) => {
-  try {
-    const currentUserID = req.user?.userID;
-    const { isPrivate } = req.query;
-    if (!isPrivate) return res.status(400).json({ success: false, message: "isPrivate is required" })
-
-    if (isPrivate !== "true" && isPrivate !== "false") return res.status(400).json({ success: false, message: "isPrivate must be true or false" })
-
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
-
-    const skip = (page - 1) * limit;
-
-    const stories = await prisma.stories.findMany({
-      where: {
-        userID: currentUserID,
-        isPublish: isPrivate === "true"
-      },
-      skip,
-      take: limit,
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-
-    const totalCount = await prisma.stories.count({
-      where: {
-        userID: currentUserID,
-      },
-    });
-
-    if (!stories || stories.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No stories found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Stories fetched successfully",
-      data: stories,
-      pagination: {
-        total: totalCount,
-        page,
-        limit,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNextPage: page < Math.ceil(totalCount / limit),
-        hasPreviousPage: page > 1,
-      },
-    });
-
-  } catch (error) {
-    logger.error(`Error getting stories: ${error}`);
-    return res.status(500).json({
+  if (!currentUserID) {
+    return res.status(401).json({
       success: false,
-      message: "Internal Server Error",
+      message: "Unauthorized",
     });
   }
-}
 
+  const parsed = idSchema.safeParse(req.params);
+  if (!parsed.success) {
+    logger.warn("Invalid blog id", {
+      issues: parsed.error.issues,
+      userID: currentUserID,
+    });
 
-export const SavedStory = async (req: Request, res: Response) => {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid blog id",
+    });
+  }
+
+  const blogID = parsed.data.Id;
+
   try {
-    const currentUserID = req.user?.userID;
+    await prisma.savedBlog.create({
+      data: {
+        userID: currentUserID,
+        blogID,
+      },
+    });
 
-    const validStory = idSchema.safeParse(req.params.id);
-    if (!validStory.success) {
-      return res.status(400).json({
+    return res.status(201).json({
+      success: true,
+      message: "Blog saved successfully",
+    });
+  } catch (error) {
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return res.status(409).json({
         success: false,
-        message: validStory.error.issues[0].message,
+        message: "Blog already saved",
       });
     }
 
-    if (!currentUserID) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized User",
-      });
-    }
+    logger.error("Error saving blog", {
+      error,
+      userID: currentUserID,
+      blogID,
+    });
 
-    const storyID = validStory.data.Id;
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
 
-    // check if already saved
-    const existing = await prisma.savedStory.findUnique({
+
+export const unsaveBlog = async (req: Request, res: Response) => {
+  const currentUserID = req.user?.userID;
+
+  if (!currentUserID) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized",
+    });
+  }
+
+  const parsed = idSchema.safeParse(req.params);
+  if (!parsed.success) {
+    logger.warn("Invalid blog id", {
+      issues: parsed.error.issues,
+      userID: currentUserID,
+    });
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid blog id",
+    });
+  }
+
+  const blogID = parsed.data.Id;
+
+  try {
+    await prisma.savedBlog.delete({
       where: {
-        userID_storyID: {
+        userID_blogID: {
           userID: currentUserID,
-          storyID,
+          blogID,
         },
       },
     });
 
-    if (existing) {
-      return res.status(400).json({
+    return res.status(200).json({
+      success: true,
+      message: "Story unsaved successfully",
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      return res.status(404).json({
         success: false,
-        message: "Story Already Saved"
-      })
+        message: "Story is not saved",
+      });
     }
-    // ✔ Not saved → create it
-    await prisma.savedStory.create({
+
+    // 5️⃣ Log unexpected errors
+    logger.error("Error unsaving story", {
+      error,
+      userID: currentUserID,
+      blogID,
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+export const isMember = async (userID: string): Promise<boolean> => {
+  try {
+    const now = new Date();
+    const membershipExists = await prisma.membership.findFirst({
+      where: {
+        userID,
+        expiresAt: {
+          gte: now,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+    return Boolean(membershipExists);
+  } catch (error) {
+    logger.error("Error checking membership status", {
+      error,
+      userID,
+    });
+    return false;
+  }
+};
+
+
+export const commentOnBlog = async (req: Request, res: Response) => {
+  const currentUserID = req.user?.userID;
+
+  if (!currentUserID) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized",
+    });
+  }
+
+  const parsed = idSchema.safeParse(req.params);
+  if (!parsed.success) {
+    logger.warn("Invalid blog id", {
+      issues: parsed.error.issues,
+      userID: currentUserID,
+    });
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid blog id",
+    });
+  }
+
+  const blogID = parsed.data.Id;
+  const message = req.body?.message?.trim();
+
+  // Validate message
+  if (!message) {
+    return res.status(400).json({
+      success: false,
+      message: "Message is required",
+    });
+  }
+
+  if (message.length > 500) {
+    return res.status(400).json({
+      success: false,
+      message: "Message is too long",
+    });
+  }
+
+  try {
+    // Ensure blog exists
+    const blog = await prisma.blog.findUnique({
+      where: { id: blogID },
+      select: { id: true, userID: true },
+    });
+
+    if (!blog) {
+      return res.status(404).json({
+        success: false,
+        message: "Blog not found",
+      });
+    }
+
+    const comment = await prisma.comment.create({
       data: {
         userID: currentUserID,
-        storyID,
+        blogId: blogID,
+        message,
+      },
+      select: { id: true },
+    });
+
+    await prisma.commentNotification.create({
+      data: {
+        userID: blog.userID,
+        commentID: comment.id,
+        isSeen: false,
       },
     });
 
-    return res.status(200).json({
+    return res.status(201).json({
       success: true,
-      message: "Story saved successfully",
+      message: "Comment created successfully",
+      comment,
+    });
+  } catch (error) {
+    logger.error("Error creating comment", {
+      error,
+      userID: currentUserID,
+      blogID,
     });
 
-  } catch (error: any) {
-    logger.error(`Error saving story: ${error}`);
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      return res.status(404).json({
+        success: false,
+        message: "Blog not found",
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -472,64 +707,5 @@ export const SavedStory = async (req: Request, res: Response) => {
   }
 };
 
-
-export const UnsaveStory = async (req: Request, res: Response) => {
-  try {
-
-    const currentUserID = req.user?.userID;
-    const validStory = idSchema.safeParse(req.params.id);
-    if (!validStory.success) {
-      return res.status(400).json({
-        success: false,
-        message: validStory.error.issues[0].message,
-      });
-    }
-
-    if (!currentUserID) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized User",
-      });
-    }
-
-    const storyID = validStory.data.Id;
-
-    // check if already saved
-    const existing = await prisma.savedStory.findUnique({
-      where: {
-        userID_storyID: {
-          userID: currentUserID,
-          storyID,
-        },
-      },
-    });
-
-    if (!existing) {
-      return res.status(400).json({
-        success: false,
-        message: "Story Not saved "
-      })
-    }
-    // ✔ Not saved → create it
-    await prisma.savedStory.delete({
-      data: {
-        userID: currentUserID,
-        storyID,
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Story Unsaved successfully",
-    });
-
-  } catch (error: any) {
-    logger.error(`Error Unsaving story: ${error}`);
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-    });
-  }
-}
 
 

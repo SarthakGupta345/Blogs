@@ -113,6 +113,7 @@ model Blog {
   topics        Topic[]       @relation("BlogToTopic")
 
   @@index([userID])
+  @@unique([id, userID])
   @@index([isPublished, createdAt(sort: Desc)])
   @@index([userID, isPublished, createdAt(sort: Desc)])
   @@index([isMemberOnly])
