@@ -8,7 +8,7 @@ export const uploadToS3 = async (
 ) => {
   const command = new PutObjectCommand({
     Bucket: process.env.AWS_S3_BUCKET,
-    Key: `uploads/${Date.now()}-${fileName}`,
+    Key: `thumbnails/${Date.now()}-${fileName}`,
     Body: fileBuffer,
     ContentType: mimeType,
   });

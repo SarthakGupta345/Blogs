@@ -10,7 +10,7 @@ datasource db {
 model User {
   id                                String                @id @default(cuid())
   email                             String                @unique
-  name                              String  
+  name                              String
   about                             String?
   experience                        Int?
   interests                         String[]
@@ -112,8 +112,8 @@ model Blog {
   savedBy       SavedBlog[]
   topics        Topic[]       @relation("BlogToTopic")
 
-  @@index([userID])
   @@unique([id, userID])
+  @@index([userID])
   @@index([isPublished, createdAt(sort: Desc)])
   @@index([userID, isPublished, createdAt(sort: Desc)])
   @@index([isMemberOnly])

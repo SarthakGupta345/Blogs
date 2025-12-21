@@ -6,6 +6,8 @@ import { success } from "zod";
 import { idSchema } from "../Schema/auth.schema";
 import { logger } from "../config/Logger/logger";
 import { Prisma } from "../../generated/prisma/client";
+import { blogSchema } from "../Schema/blog.schema";
+import { isMember } from "./blog.controller";
 
 
 export const changeProfilePic = async (req: Request, res: Response) => {
@@ -273,13 +275,22 @@ export const deleteBlog = async (req: Request, res: Response) => {
   const blogID = parsed.data.Id;
 
   try {
+    const blog = await prisma.blog.findUnique({
+      where: { id: blogID },
+      select: { userID: true },
+    })
+
+    if (!blog || blog.userID !== currentUserID) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
 
     await prisma.blog.delete({
       where: {
-        id_UserID: {
-          id: blogID,
-          userID: currentUserID
-        }
+        id: blogID,
+        userID: currentUserID,
       },
     });
 
@@ -308,148 +319,6 @@ export const deleteBlog = async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error",
-    });
-  }
-};
-
-export const getAllBlogFromUser = async (req: Request, res: Response) => {
-  const currentUserID = req.user?.userID;
-
-  if (!currentUserID) {
-    return res.status(401).json({
-      success: false,
-      message: "Unauthorized",
-    });
-  }
-
-  // Validate user id param
-  const parsed = idSchema.safeParse(req.params);
-  if (!parsed.success) {
-    logger.warn("Invalid user id", {
-      issues: parsed.error.issues,
-      userID: currentUserID,
-    });
-
-    return res.status(400).json({
-      success: false,
-      message: "Invalid user id",
-    });
-  }
-
-  const userID = parsed.data.Id;
-
-  // Safe pagination
-  const page = Math.max(Number(req.query.page) || 1, 1);
-  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 20);
-  const skip = (page - 1) * limit;
-
-  try {
-    // Ensure target user exists
-    const userExists = await prisma.user.findUnique({
-      where: { id: userID },
-      select: { id: true },
-    });
-
-    if (!userExists) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    // Fetch blogs + total count in parallel
-    const [blogs, totalCount] = await Promise.all([
-      prisma.blog.findMany({
-        where: {
-          userID,
-          isPublished: true,
-        },
-        skip,
-        take: limit,
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          title: true,
-          content: true,
-          createdAt: true,
-          thumbnail: true,
-          isMemberOnly: true,
-          viewCount: true,
-          _count: {
-            select: {
-              likes: true,
-              dislikes: true,
-              comments: true,
-            },
-          },
-        },
-      }),
-      prisma.blog.count({
-        where: {
-          userID,
-          isPublished: true,
-        },
-      }),
-    ]);
-
-    // Fetch user interactions ONLY if blogs exist
-    let likedSet = new Set<string>();
-    let dislikedSet = new Set<string>();
-    let savedSet = new Set<string>();
-
-    if (blogs.length > 0) {
-      const blogIds = blogs.map((b) => b.id);
-
-      const [likes, dislikes, saves] = await Promise.all([
-        prisma.blogLike.findMany({
-          where: { userID: currentUserID, blogID: { in: blogIds } },
-          select: { blogID: true },
-        }),
-        prisma.blogDisLike.findMany({
-          where: { userID: currentUserID, blogID: { in: blogIds } },
-          select: { blogID: true },
-        }),
-        prisma.savedBlog.findMany({
-          where: { userID: currentUserID, blogID: { in: blogIds } },
-          select: { blogID: true },
-        }),
-      ]);
-
-      likedSet = new Set(likes.map((l) => l.blogID));
-      dislikedSet = new Set(dislikes.map((d) => d.blogID));
-      savedSet = new Set(saves.map((s) => s.blogID));
-    }
-
-    const data = blogs.map((blog) => ({
-      ...blog,
-      isLiked: likedSet.has(blog.id),
-      isDisliked: dislikedSet.has(blog.id),
-      isSaved: savedSet.has(blog.id),
-    }));
-
-    return res.status(200).json({
-      success: true,
-      message: "Stories fetched successfully",
-      data,
-      pagination: {
-        total: totalCount,
-        page,
-        limit,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNextPage: page * limit < totalCount,
-        hasPreviousPage: page > 1,
-      },
-    });
-  } catch (error) {
-    logger.error("Error getting stories", {
-      error,
-      userID,
-      currentUserID,
-    });
-
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
     });
   }
 };
@@ -516,7 +385,6 @@ export const saveBlog = async (req: Request, res: Response) => {
   }
 };
 
-
 export const unsaveBlog = async (req: Request, res: Response) => {
   const currentUserID = req.user?.userID;
 
@@ -568,7 +436,7 @@ export const unsaveBlog = async (req: Request, res: Response) => {
     }
 
     // 5️⃣ Log unexpected errors
-    logger.error("Error unsaving story", {
+    logger.error("Error in unsaving story", {
       error,
       userID: currentUserID,
       blogID,
@@ -581,32 +449,7 @@ export const unsaveBlog = async (req: Request, res: Response) => {
   }
 };
 
-export const isMember = async (userID: string): Promise<boolean> => {
-  try {
-    const now = new Date();
-    const membershipExists = await prisma.membership.findFirst({
-      where: {
-        userID,
-        expiresAt: {
-          gte: now,
-        },
-      },
-      select: {
-        id: true,
-      },
-    });
-    return Boolean(membershipExists);
-  } catch (error) {
-    logger.error("Error checking membership status", {
-      error,
-      userID,
-    });
-    return false;
-  }
-};
-
-
-export const commentOnBlog = async (req: Request, res: Response) => {
+export const createBlog = async (req: Request, res: Response) => {
   const currentUserID = req.user?.userID;
 
   if (!currentUserID) {
@@ -616,96 +459,130 @@ export const commentOnBlog = async (req: Request, res: Response) => {
     });
   }
 
-  const parsed = idSchema.safeParse(req.params);
+  const parsed = blogSchema.safeParse(req.body);
   if (!parsed.success) {
-    logger.warn("Invalid blog id", {
+    logger.warn("Invalid blog payload", {
       issues: parsed.error.issues,
       userID: currentUserID,
     });
 
     return res.status(400).json({
       success: false,
-      message: "Invalid blog id",
+      message: "Invalid blog data",
     });
   }
 
-  const blogID = parsed.data.Id;
-  const message = req.body?.message?.trim();
+  const {
+    title,
+    content,
+    isMemberOnly,
+    isPublished,
+    topics,
+    thumbnail,
+  } = parsed.data;
 
-  // Validate message
-  if (!message) {
+  // 🔒 Business rules
+  if (!Array.isArray(content) || content.length === 0) {
     return res.status(400).json({
       success: false,
-      message: "Message is required",
-    });
-  }
-
-  if (message.length > 500) {
-    return res.status(400).json({
-      success: false,
-      message: "Message is too long",
+      message: "Blog content cannot be empty",
     });
   }
 
   try {
-    // Ensure blog exists
-    const blog = await prisma.blog.findUnique({
-      where: { id: blogID },
-      select: { id: true, userID: true },
-    });
-
-    if (!blog) {
-      return res.status(404).json({
-        success: false,
-        message: "Blog not found",
-      });
+    // Optional: check membership if member-only
+    if (isMemberOnly) {
+      const isUserMember = await isMember(currentUserID);
+      if (!isUserMember) {
+        return res.status(403).json({
+          success: false,
+          message: "Membership required to publish this blog",
+        });
+      }
     }
 
-    const comment = await prisma.comment.create({
-      data: {
-        userID: currentUserID,
-        blogId: blogID,
-        message,
-      },
-      select: { id: true },
-    });
 
-    await prisma.commentNotification.create({
-      data: {
-        userID: blog.userID,
-        commentID: comment.id,
-        isSeen: false,
-      },
+    // Transaction = atomic
+    const blog = await prisma.$transaction(async (tx) => {
+      // Validate topics exist (optional but recommended)
+      if (topics?.length) {
+        const topicCount = await tx.topic.count({
+          where: { id: { in: topics } },
+        });
+
+        if (topicCount !== topics.length) {
+          throw new Error("Invalid topics provided");
+        }
+      }
+
+      return tx.blog.create({
+        data: {
+          title: title.trim(),
+          content,
+          userID: currentUserID,
+          isMemberOnly,
+          isPublished,
+          thumbnail,
+          topics: topics?.length
+            ? { connect: topics.map((id) => ({ id })) }
+            : undefined,
+        },
+        select: {
+          id: true,
+          title: true,
+          createdAt: true,
+          isPublished: true,
+        },
+      });
     });
 
     return res.status(201).json({
       success: true,
-      message: "Comment created successfully",
-      comment,
+      message: "Blog created successfully",
+      data: blog,
     });
   } catch (error) {
-    logger.error("Error creating comment", {
-      error,
-      userID: currentUserID,
-      blogID,
-    });
-
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2025"
+      error.code === "P2002"
     ) {
-      return res.status(404).json({
+      return res.status(409).json({
         success: false,
-        message: "Blog not found",
+        message: "Duplicate blog",
       });
     }
 
+    logger.error("Error creating blog", {
+      error,
+      userID: currentUserID,
+    });
+
     return res.status(500).json({
       success: false,
-      message: "Internal Server Error",
+      message: "Internal server error",
     });
   }
 };
 
+const uploadThumbnail = async (req: Request, res: Response) => {
+  const file = req.file;
 
+  if (!file) {
+    return res.status(400).json({
+      success: false,
+      message: "File required",
+    });
+  }
+
+  const imageUrl = await uploadToS3(
+    file.buffer,
+    file.originalname,
+    file.mimetype
+  );
+
+  return res.status(200).json({
+    success: true,
+    url: imageUrl,
+  });
+};
 
