@@ -1,18 +1,19 @@
 import express from "express"
-import { AllStory, AllStoryFromFollowing, commentOnStory, createStory, DisLikeStory, FullStory, LikeStory, replyComment, ReportStory, TrendingStory } from "../controllers/blog.controller"
 import { upload } from "../config/multer"
-import { loginMiddleware } from "../middleware/LoginMiddleware"
+import { loginMiddleware } from "../middlewares/loginMiddleware"
+import { AllBlogFromFollowing, commentOnBlog, getAllBlogFromUser, getBlog, getTrendingBlog, replyComment, toggleDislike, toggleLike } from "../Controllers/blog.controller"
+import { createBlog } from "../Controllers/person.controller"
 const router = express.Router()
 
-router.get("/getAllStory/:Page/:limit",AllStory)
-router.get("/getStoryFromFollowing",loginMiddleware,AllStoryFromFollowing)
-router.get("/getTrendingStory",TrendingStory)
-router.get("/getFullStory",FullStory)
-router.put("/replyComment/:id",loginMiddleware,replyComment)
-router.post("/CommentOnStory",loginMiddleware,commentOnStory)
-router.put("/LikeStory/:id",loginMiddleware,LikeStory)
-router.put("/DisLikeStory",loginMiddleware,DisLikeStory)
-router.put("/ReportStory/:id",ReportStory)
-router.post("/createStory",upload.single("thumbnail"),createStory)
+router.get("/getStoryFromFollowing", loginMiddleware, AllBlogFromFollowing)
+router.get("/getTrendingStory", getTrendingBlog)
+router.get("/getFullBlog", getBlog)
+router.put("/replyComment/:id", loginMiddleware, replyComment)
+router.post("/CommentOnBlog", loginMiddleware, commentOnBlog)
+router.put("/toggleLike/:id", loginMiddleware, toggleLike)
+router.put("/toggleDislike", loginMiddleware, toggleDislike)
+router.post("/createStory", upload.single("thumbnail"), createBlog)
+router.get("/AllFromUser/:id", getAllBlogFromUser)
+
 
 export default router

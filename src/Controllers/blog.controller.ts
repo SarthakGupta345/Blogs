@@ -3,7 +3,6 @@ import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../config/prisma";
 import { logger } from "../config/Logger/logger";
 import { idSchema } from "../Schema/auth.schema";
-import { set } from "zod";
 
 
 export const isMember = async (userID: string): Promise<boolean> => {
@@ -848,3 +847,9 @@ export const getAllCommentsFromBlog = async ({
     }
 };
 
+
+export const replyComment = async(req:Request,res:Response)=>{
+}
+
+
+export const AllBlogFromFollowing = async (req: Request, res: Response) => {}

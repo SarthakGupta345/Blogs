@@ -84,6 +84,9 @@ export const changeProfilePic = async (req: Request, res: Response) => {
   }
 };
 
+export const getMe = async (req: Request, res: Response) => {
+}
+
 export const deleteProfilePic = async (req: Request, res: Response) => {
   try {
     const currentUserID = req.user?.userID;
