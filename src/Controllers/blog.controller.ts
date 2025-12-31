@@ -1,9 +1,8 @@
 import { Request, Response } from "express";
 import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../config/prisma";
-import { logger } from "../config/Logger/logger";
 import { idSchema } from "../Schema/auth.schema";
-
+import { logger } from "../config/Logger/logger";
 
 export const isMember = async (userID: string): Promise<boolean> => {
     try {

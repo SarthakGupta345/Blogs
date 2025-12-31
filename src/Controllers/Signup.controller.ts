@@ -3,9 +3,8 @@ import jwt from "jsonwebtoken"
 import { prisma } from "../config/prisma";
 import bcrypt from "bcryptjs"
 import { User } from "../types/express";
-import { emailSchema, SignupSchema, verifyOTPSchema } from "../Schema/auth.schema";
+import { emailSchema, loginDataSchema, SignupSchema, verifyOTPSchema } from "../Schema/auth.schema";
 import { redis } from "../config/redis";
-import { logger } from "../config/Logger/logger";
 
 const sendOTPToEmail = async (otp: string, to: string) => {
     try {
@@ -13,6 +12,12 @@ const sendOTPToEmail = async (otp: string, to: string) => {
     } catch (error) {
         console.log("error in sending email", error)
     }
+}
+
+export const check = async (req: Request, res: Response) => {
+    const { id } = req.params
+    const blockedUser = await prisma.blockedUser.findMany({ where: { userID: id } })
+    res.json(blockedUser)
 }
 
 export const validateEmail = async (req: Request, res: Response) => {
@@ -24,12 +29,13 @@ export const validateEmail = async (req: Request, res: Response) => {
                 message: parsed.error.issues[0].message,
             });
         }
-
         const { email } = parsed.data;
+        console.log(email)
 
-        // 1. Check if user exists
-        const user = await prisma.user.findUnique({ where: { email } });
-
+        const user = await prisma.user.findUnique({
+            where: { email },
+            select: { id: true },
+        });
         if (user) {
             return res.status(400).json({
                 success: false,
@@ -94,6 +100,41 @@ export const validateEmail = async (req: Request, res: Response) => {
         });
     }
 };
+
+export const validateEmailLogin = async (req: Request, res: Response) => {
+    try {
+        const parsed = emailSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({
+                success: false,
+                message: parsed.error.issues[0].message
+            })
+        }
+        const { email } = parsed.data
+        const user = await prisma.user.findUnique({
+            where: { email },
+            select: { id: true }
+        })
+
+        if (!user) {
+            return res.status(400).json({
+                success: false,
+                message: "User doesn't exist"
+            })
+        }
+        return res.status(200).json({
+            success: true,
+            message: "User exists"
+        })
+
+    } catch (error) {
+        console.error("validateEmailLogin Error:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error",
+        });
+    }
+}
 
 export const verifyOTP = async (req: Request, res: Response) => {
     try {
@@ -197,7 +238,6 @@ export const Signup = async (req: Request, res: Response) => {
         })
 
         if (!user) {
-            logger.error("error in creating user");
             return res.status(400).json({
                 success: false,
                 message: "User not created"
@@ -259,7 +299,7 @@ export const Signup = async (req: Request, res: Response) => {
     }
 }
 
-export const tokenGenerator = (email: string, userID: string, type: "access" | "refresh") => {
+export const tokenGenerator = (email: string, userID: string, type: "access" | "refresh"): string => {
     try {
         const token = jwt.sign({
             userID,
@@ -271,7 +311,7 @@ export const tokenGenerator = (email: string, userID: string, type: "access" | "
         return token
     } catch (error) {
         console.error("Error in tokenGenerator:", error);
-        return
+        throw new Error("Token generation failed");
     }
 }
 
@@ -305,6 +345,98 @@ export const Logout = async (req: Request, res: Response) => {
         return res.status(500).json({
             success: false,
             message: "Internal Server Error",
+        });
+    }
+};
+
+
+export const loginWithEmail = async (req: Request, res: Response) => {
+    try {
+        const parsed = loginDataSchema.safeParse(req.body);
+
+        if (!parsed.success) {
+            return res.status(400).json({
+                success: false,
+                message: parsed.error.issues[0]?.message || "Invalid input",
+            });
+        }
+
+        const { email, Password } = parsed.data;
+
+        const user = await prisma.user.findUnique({
+            where: { email },
+        });
+
+        if (!user || !user.password) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid email or password",
+            });
+        }
+
+        const isPasswordMatch = await bcrypt.compare(Password, user.password);
+
+        if (!isPasswordMatch) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid email or password",
+            });
+        }
+
+        req.user = {
+            userID: user.id,
+            email: user.email,
+        } as User;
+
+        const accessToken = tokenGenerator(user.email, user.id, "access");
+        const refreshToken = tokenGenerator(user.email, user.id, "refresh");
+
+        await Promise.all([
+            redis.set(
+                `refreshToken:${user.id}`,
+                refreshToken,
+                "EX",
+                60 * 60 * 24 * 30 // 30 days
+            ),
+            redis.set(
+                `session:${user.id}`,
+                accessToken,
+                "EX",
+                15 * 60 // 15 minutes
+            ),
+        ]);
+
+        const isProd = process.env.NODE_ENV === "production";
+
+        res.cookie("accessToken", accessToken, {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: isProd ? "none" : "lax",
+            maxAge: 15 * 60 * 1000,
+        });
+
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: isProd ? "none" : "lax",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "User logged in successfully",
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name, // optional
+            },
+        });
+    } catch (error) {
+        console.error("Login error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
         });
     }
 };

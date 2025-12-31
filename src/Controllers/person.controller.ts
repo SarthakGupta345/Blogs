@@ -4,10 +4,10 @@ import { deleteFromS3 } from "../config/aws/s3/deleteObject";
 import { uploadToS3 } from "../config/aws/s3/putObject";
 import { success } from "zod";
 import { idSchema } from "../Schema/auth.schema";
-import { logger } from "../config/Logger/logger";
 import { Prisma } from "../../generated/prisma/client";
 import { blogSchema } from "../Schema/blog.schema";
 import { isMember } from "./blog.controller";
+import { logger } from "../config/Logger/logger";
 
 
 export const changeProfilePic = async (req: Request, res: Response) => {
@@ -190,7 +190,6 @@ export const toggleFollow = async (req: Request, res: Response) => {
   }
 
   try {
-
     const exists = await prisma.user.findUnique({
       where: { id: targetUserID },
       select: { id: true },

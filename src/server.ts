@@ -3,6 +3,8 @@ import dotenv from "dotenv"
 import cors from "cors"
 import cookieParser from "cookie-parser"
 import helmet from "helmet";
+import blogRoutes from "./routes/Blog.route";
+import userRoutes from "./routes/User.route";
 dotenv.config()
 
 const PORT = process.env.PORT
@@ -20,12 +22,9 @@ app.use(express.urlencoded({
 
 app.use(cookieParser());
 
-app.use(helmet({
-    contentSecurityPolicy: false,
-}));
 
 app.use(cors({
-    origin: process.env.CLIENT_URL,
+    origin: "http://localhost:3000",
     methods: ["GET", "POST", "DELETE", "UPDATE", "PUT", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -41,4 +40,5 @@ app.get("/", (req, res) => {
 });
 
 
-
+app.use("/api/v1/useRoutes",userRoutes);
+app.use("/api/v1/blogRoutes", blogRoutes);

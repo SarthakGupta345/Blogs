@@ -12,7 +12,7 @@ export const redis = new Redis(process.env.REDIS_URL as string, {
             console.log("⚠️ Redis READONLY Error – Reconnecting...");
             return true;
         }
-        return false;   
+        return false;
     },
 
     maxRetriesPerRequest: null, // prevent unhandled promise rejections
